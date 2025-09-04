@@ -8,6 +8,10 @@
 # 4) 统计：打印总体统计 & “逐年统计”；并打印“每年年初的 QQQ 价格（基准价）”；绘图按年各画一张累计盈亏图。
 # ------------------------------------------------------------
 
+## ======
+## 这个策略的关键点是，对于突破K线，“突破” 和 “买入”必须同时发生。
+## ======
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -34,11 +38,13 @@ USE_RTH = True                   # 只用常规交易时段
 
 LOOKBACK_YEARS = 1               # ✅ 今年往前 N 年（含今年）
 N_EARLY_BARS = 3                 # 早盘区间根数
-RANGE_MULTIPLE = 1.0             # 止盈/止损倍数（=早盘区间 * 该倍数）
+RANGE_MULTIPLE = 1               # 止盈/止损倍数（=早盘区间 * 该倍数）
 INTRABAR_HIT_ORDER = 'target_first'  # 'stop_first' 或 'target_first'
 SLIPPAGE = 0.00                  # 入/出场滑点（正数）；多=+slip，空=-slip（见下文）
 
 # ============= 连接 IBKR & 合约校验（减少历史查询歧义/超时） =============
+from ib_insync import util
+util.startLoop()                 # ✅ 让 ib.connect() 在 Jupyter 里也能用
 ib = IB()
 ib.connect(HOST, PORT, clientId=CLIENT_ID)
 
@@ -199,6 +205,9 @@ def backtest_breakout_cash(df: pd.DataFrame,
 
             if hit_stop and hit_target:
                 # 关键点：同一根同时命中时的先后规则（回测粒度=5m，只能近似）
+                print ("同一根同时命中时")
+                print ("同一根同时命中时")
+                
                 if intrabar_hit_order == 'stop_first':
                     hit_target = False
                 else:
@@ -222,7 +231,11 @@ def backtest_breakout_cash(df: pd.DataFrame,
             outcome    = 'eod'
 
         pnl = (exit_price - entry_price) if direction == 'long' else (entry_price - exit_price)
-
+        
+        # 这里只考虑做多，做空不考虑
+        #pnl = (exit_price - entry_price) if direction == 'long' else 0
+        
+        
         records.append({
             'Date': day,
             'direction': direction,
@@ -253,6 +266,23 @@ print(f'回测完成 ✅，共 {len(trades)} 笔交易日记录')
 def calc_stats(g: pd.DataFrame, year_start_price: float | None) -> dict:
     """对一组交易（总体或某一年）计算指标；若给了 year_start_price，则返回 sum_pnl 对应百分比"""
     total = len(g)
+    
+    #============
+    win_intraday = (g['outcome'] == 'win').sum()
+    loss_intraday = (g['outcome'] == 'loss').sum()
+    eod_intraday = (g['outcome'] == 'eod').sum()
+    #============
+    print("win_intraday", win_intraday, "loss_intraday", loss_intraday, "eod_intraday", eod_intraday)
+    
+    # direction 计数
+    long_days  = (g['direction'] == 'long').sum()
+    short_days = (g['direction'] == 'short').sum()
+    none_days  = g['direction'].isna().sum()
+    print("long_days", long_days, "short_days", short_days, "none_days", none_days)
+
+    
+    
+    
     wins = (g['pnl'] > 0).sum()
     winrate = wins / total if total > 0 else np.nan
 
@@ -297,7 +327,7 @@ if not trades.empty:
         print(f"{y} | 样本: {s['trades']} | 胜率: {s['winrate']:.2%} | "
               f"做多胜率: {s['long_wr']:.2%} | 做空胜率: {s['short_wr']:.2%} | "
               f"平均盈亏$: {s['avg_pnl']:.2f} | 年度合计$: {s['sum_pnl']:.2f} "
-              f"({pct_str}) | 年初QQQ价格: {base_str}")
+              f"({pct_str}) | 年初{SYMBOL}价格: {base_str}")
 
 # ====================== 按年画累计盈亏曲线（点+线） ======================
 if not trades.empty:
@@ -315,6 +345,6 @@ if not trades.empty:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
-
+        
 # 断开连接
 ib.disconnect()
