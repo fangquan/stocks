@@ -32,7 +32,7 @@ plt.rcParams['axes.unicode_minus'] = False
 HOST = '127.0.0.1'
 PORT = 4001                      # 你的 IB Gateway / TWS 端口
 CLIENT_ID = random.randint(1, 99999)  # 随机 clientId，避免和其它程序冲突
-SYMBOL = 'TQQQ'
+SYMBOL = 'QQQ'
 BAR_SIZE = '5 mins'              # 固定 5m
 USE_RTH = True                   # 只用常规交易时段
 
@@ -123,7 +123,7 @@ daily_last_close['year'] = pd.to_datetime(daily_last_close['Date']).dt.year
 year_start_rows = daily_last_close.loc[daily_last_close.groupby('year')['Date'].idxmin()].copy()
 year_start_price_map = dict(zip(year_start_rows['year'], year_start_rows['close']))
 
-print('\n=== 每年年初QQQ价格（基于当年首个交易日 RTH 的最后一根5m收盘）===')
+print(f'\n=== 每年年初 { SYMBOL } 价格（基于当年首个交易日 RTH 的最后一根5m收盘）===')
 for y in sorted(year_start_price_map):
     print(f'{y}: {year_start_price_map[y]:.2f}')
 
@@ -280,9 +280,7 @@ def calc_stats(g: pd.DataFrame, year_start_price: float | None) -> dict:
     none_days  = g['direction'].isna().sum()
     print("long_days", long_days, "short_days", short_days, "none_days", none_days)
 
-    
-    
-    
+
     wins = (g['pnl'] > 0).sum()
     winrate = wins / total if total > 0 else np.nan
 
@@ -329,22 +327,36 @@ if not trades.empty:
               f"平均盈亏$: {s['avg_pnl']:.2f} | 年度合计$: {s['sum_pnl']:.2f} "
               f"({pct_str}) | 年初{SYMBOL}价格: {base_str}")
 
-# ====================== 按年画累计盈亏曲线（点+线） ======================
+# ====================== 按年画：策略累计盈亏 + 基准持有 ======================
 if not trades.empty:
     for y, g in trades.groupby('year'):
+        # 策略累计盈亏（美元/1股）
         curve = g.sort_values('Date')[['Date', 'pnl']].copy()
         curve['cum_pnl'] = curve['pnl'].cumsum()
 
-        plt.figure(figsize=(10, 5))
-        # 用 marker='o' 显示点，同时用线连起来
-        plt.plot(curve['Date'], curve['cum_pnl'], marker='o', linestyle='-', markersize=4)
+        # 基准：当年从第一天起，持有1股QQQ的累计盈亏（用每日RTH最后一根5m收盘近似）
+        daily_price = daily_last_close[daily_last_close['year'] == y].copy().sort_values('Date')
+        baseline = None
+        if not daily_price.empty:
+            start_price = float(daily_price['close'].iloc[0])
+            daily_price['cum_pnl'] = daily_price['close'] - start_price  # 与策略一致：美元/1股
+            baseline = daily_price[['Date', 'cum_pnl']]
 
-        plt.title(f'{SYMBOL} 早盘突破策略 累计盈亏（固定1股；早盘N={N_EARLY_BARS}；{int(y)}年）')
+        # 画图
+        plt.figure(figsize=(10, 5))
+        plt.plot(curve['Date'], curve['cum_pnl'],
+                 marker='o', linestyle='-', markersize=2, linewidth=1, label='策略累计盈亏')
+        if baseline is not None and not baseline.empty:
+            plt.plot(baseline['Date'], baseline['cum_pnl'],
+                     linestyle='--', linewidth=1, label='基准：持有QQQ一股')
+
+        plt.title(f'{SYMBOL} 早盘突破策略 vs 基准（固定1股；早盘N={N_EARLY_BARS}；{int(y)}年）')
         plt.xlabel('日期')
         plt.ylabel('累计盈亏（USD）')
+        plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
-        
+    
 # 断开连接
 ib.disconnect()
